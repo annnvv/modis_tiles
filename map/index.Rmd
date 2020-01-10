@@ -1,0 +1,105 @@
+---
+title: "MODIS Tiles in Leaflet"
+author: "Anna Vasylytsya"
+date: "01/09/2020"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, error = FALSE)
+proj_path <- "C:/Users/Anna V/Documents/GitHub/modis_tiles"
+```
+
+```{r libraries}
+library(MODIS)
+library(rgdal)
+library(leaflet)
+library(sp)
+library(printr)
+```
+
+## Get MODIS Tiles from MODIS package
+```{r}
+sa <- readOGR("C:/Users/Anna V/Documents/GitHub/exploring_spatial_data/data/south_america_shp/SouthAmerica.shp")
+gtm <- sa[sa@data$Name== "GUATEMALA", ]
+```
+
+```{r MODIS}
+modis_tile <- getTile(extent(gtm))
+modis_tile@tile
+```
+
+## Load shapefile
+
+```{r load_shp}
+modis <- readOGR(paste0(proj_path, "/data/modis_sinusoidal_grid_world.shp"), 
+                 verbose = FALSE, stringsAsFactors = FALSE)
+print(str(modis@data))
+print(head(modis@data, n=3)) # the combination of h and v, indicates the modis tile
+plot(modis, main = "MODIS tile grid")
+```
+
+The tiles are square! The whole grid is a rectangle!
+
+### Coordinate reference system (CRS)
+```{r crs}
+print((modis@proj4string)) # modis sinusoidal projection!
+```
+
+Change the string to numbers
+```{r numeric}
+modis$h <- as.numeric(modis$h)
+modis$v <- as.numeric(modis$v)
+```
+
+## Generate a tile label within the modis dataframe 
+Modis tiles are specified as: h##v##, this means that we will have to pad the single digit numbers with zeros.
+```{r padding_function}
+lead0 <- function(m, pad.val){
+    # A function to pad values with a specified characters
+    # Only designed to handle up to two characters
+    # Args:
+    #       m: a vector
+    #       pad.val: the padding character (e.g. "0")
+    # Returns:
+    #       A vector where all elements have two characters
+  m[nchar(m)==1] <- paste0(pad.val,m[nchar(m)==1])
+  return(m)
+}
+```
+
+```{r label}
+modis$label <- paste0("<b>h</b>", lead0(modis$h, 0), "<b>v</b>", lead0(modis$v, 0))
+print(head(modis@data, n=3))
+```
+
+## Project modis tiles shapefile to WGS84
+"The Leaflet package expects all point, line, and shape data to be specified in latitude and longitude using WGS 84 (a.k.a. EPSG:4326). By default, when displaying this data it projects everything to EPSG:3857 and expects that any map tiles are also displayed in EPSG:3857."
+"While tiles must be in the same projection as used in the leafletCRS function, you must always use WGS 84 longitude/latitude data for markers, circles, polygons, and lines. Leaflet will automatically project the coordinates when displaying."
+
+```{r modis_wgs84}
+modis_wgs84 <- spTransform(modis, CRS("+init=EPSG:4326"))
+print(modis_wgs84@proj4string)
+str(modis_wgs84@data)
+```
+
+```{r write_modis_wgs84}
+writeOGR(modis_wgs84, paste0(proj_path, "/data/modis_grid_wgs84.shp"), 
+         layer = "/modis_grid_wgs84.shp", driver = "ESRI Shapefile")
+```
+
+## Interactive Map
+
+```{r leaflet}
+leaflet(data = modis_wgs84) %>%
+  setView(lng = -71.0589, lat = 42.3601, zoom = 2) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addPolygons(color = "black", fill = TRUE,fillColor = "white", fillOpacity = 0.2,
+              opacity = 1, weight = 1,popup = modis_wgs84$label
+              #smoothFactor = 0.5, group = "tile"
+              )
+```
+
+If that map look quite weird to you, please read this blog post that breaks down coordinate reference systems and how 3D data is displayed in two dimensions: https://lyzidiamond.com/posts/4326-vs-3857
