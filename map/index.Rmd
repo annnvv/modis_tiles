@@ -21,6 +21,7 @@ library(printr)
 ```
 
 ## Get MODIS Tiles from MODIS package
+MODIS provided tile calculator: https://landweb.modaps.eosdis.nasa.gov/cgi-bin/developer/tilemap.cgi
 ```{r}
 sa <- readOGR("C:/Users/Anna V/Documents/GitHub/exploring_spatial_data/data/south_america_shp/SouthAmerica.shp")
 gtm <- sa[sa@data$Name== "GUATEMALA", ]
@@ -41,7 +42,7 @@ print(head(modis@data, n=3)) # the combination of h and v, indicates the modis t
 plot(modis, main = "MODIS tile grid")
 ```
 
-The tiles are square! The whole grid is a rectangle!
+The tiles are square! The whole grid is a rectangle! "There are 460 non-fill tiles, tiles are 10 degrees by 10 degrees at the equator." https://modis-land.gsfc.nasa.gov/MODLAND_grid.html
 
 ### Coordinate reference system (CRS)
 ```{r crs}
@@ -79,10 +80,26 @@ print(head(modis@data, n=3))
 "The Leaflet package expects all point, line, and shape data to be specified in latitude and longitude using WGS 84 (a.k.a. EPSG:4326). By default, when displaying this data it projects everything to EPSG:3857 and expects that any map tiles are also displayed in EPSG:3857."
 "While tiles must be in the same projection as used in the leafletCRS function, you must always use WGS 84 longitude/latitude data for markers, circles, polygons, and lines. Leaflet will automatically project the coordinates when displaying."
 
+```{r pop_rast, include = FALSE}
+# pop <- raster(paste0(gsub("modis_tiles", "", proj_path), "/exploring_spatial_data/data/pop17_tif/ppp_2017_1km_Aggregated.tif"))
+```
+
 ```{r modis_wgs84}
+# maybe try rasterizing the polygon, changing the CRS, then rasterToPolygon and plotting! av.note: 2020-01-21
+#https://stackoverflow.com/questions/26102012/plotting-world-map-in-orthographic-projection-is-giving-non-finite-points/26153202#26153202
+
 modis_wgs84 <- spTransform(modis, CRS("+init=EPSG:4326"))
 print(modis_wgs84@proj4string)
 str(modis_wgs84@data)
+
+m84_rast <- rasterize(modis_wgs84, pop, updateValue = TRUE)
+```
+
+```{r epsg:4857, include = FALSE}
+# bol_pop <- raster(paste0(gsub("modis_tiles", "", proj_path), "/exploring_spatial_data/data/bolivia/bolivia_ppp_2017_1km.tif")
+# bol_web <- projectRasterForLeaflet(x = bol_pop, method = "ngb")
+leaflet_crs <- "+proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=@null +no_defs"
+# modis_lf <- spTransform(modis_wgs84, CRS(leaflet_crs)) #not possible to project the whole world
 ```
 
 ```{r write_modis_wgs84}
@@ -93,11 +110,16 @@ writeOGR(modis_wgs84, paste0(proj_path, "/data/modis_grid_wgs84.shp"),
 ## Interactive Map
 
 ```{r leaflet}
-leaflet(data = modis_wgs84) %>%
-  setView(lng = -71.0589, lat = 42.3601, zoom = 2) %>%
+#inspiration: https://rpubs.com/bhaskarvk/proj4leaflet
+leaflet(data = modis, options = 
+          leafletOptions(crs=leafletCRS(crsClass="L.Proj.CRS",
+                                        code='SR-ORG:6842',
+                                        proj4def= "+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +a=6371007.181 +b=6371007.181 +units=m +no_defs",
+                                        resolutions = c(65536, 32768, 16384, 8192, 4096, 2048)))) %>% # i think i have to play with the resolutions!
+  # setView(lng = -71.0589, lat = 42.3601, zoom = 2) %>% #
   addProviderTiles(providers$CartoDB.Positron) %>%
-  addPolygons(color = "black", fill = TRUE,fillColor = "white", fillOpacity = 0.2,
-              opacity = 1, weight = 1,popup = modis_wgs84$label
+  addPolygons(color = "black", opacity = 1, weight = 1, popup = modis$label,
+              fill = TRUE,fillColor = "white", fillOpacity = 0.2
               #smoothFactor = 0.5, group = "tile"
               )
 ```
